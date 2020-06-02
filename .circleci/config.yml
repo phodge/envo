@@ -47,6 +47,10 @@ bootstrap: &bootstrap
     command: ./bootstrap
 
 
+orbs:
+  codecov: codecov/codecov@1.0.2
+
+
 jobs:
   flake8:
     <<: *defaults
@@ -89,6 +93,33 @@ jobs:
     <<: *test-template
     image: circleci/python:3.6
 
+  upload-codecov:
+    working_directory: /srv
+    docker:
+      - image: circleci/python:3.7
+    steps:
+      - run:
+          name: Init
+          command: sudo chown circleci:circleci /srv
+      - checkout
+      - run:
+          name: Create workspace
+          command: mkdir -p workspace
+      - attach_workspace:
+          at: workspace
+      - run:
+          name: Upload
+          command: |
+            curl -s https://codecov.io/bash | bash -s -- \
+            -t "${CODECOV_TOKEN}" \
+            -n "${CIRCLE_BUILD_NUM}" \
+            -y ".codecov.yml" \
+            -f "./workspace/test-results/coverage.xml" \
+            -Z || echo 'Codecov upload failed'
+      - run:
+          - codecov/upload
+
+
   publish:
     <<: *defaults
     steps:
@@ -96,7 +127,7 @@ jobs:
       - *restore_cache
       - *bootstrap
       - run:
-          name: Publish
+          name: Recreate stubs
           command: poetry run ./.bin/recreate_stubs
       - run:
           name: Generate version
