@@ -39,8 +39,8 @@ jobs:
     <<: *defaults
     steps:
       - checkout
-      - *bootstrap
       - *restore_cache
+      - *bootstrap
       - run:
           name: Flake8
           command: poetry run flake8
@@ -49,8 +49,8 @@ jobs:
     <<: *defaults
     steps:
       - checkout
-      - *bootstrap
       - *restore_cache
+      - *bootstrap
       - run:
           name: Mypy
           command: poetry run mypy .
@@ -59,8 +59,8 @@ jobs:
     <<: *defaults
     steps:
       - checkout
-      - *bootstrap
       - *restore_cache
+      - *bootstrap
       - run:
           name: Test
           command: poetry run pytest tests
@@ -69,8 +69,10 @@ jobs:
     <<: *defaults
     steps:
       - checkout
-      - *bootstrap
       - *restore_cache
+      - run:
+          name: Install poetry
+          command: pip install poetry=="1.0.5"
       - run:
           name: Publish
           command: >
