@@ -21,6 +21,14 @@ workflows:
               only: master
             tags:
               only: /^[0-9]+(\.[0-9]+)*$/
+      - upload-codecov:
+          requires:
+            - publish
+          filters:
+            branches:
+              only: master
+            tags:
+              only: /^[0-9]+(\.[0-9]+)*$/
 
 defaults: &defaults
   docker:
@@ -45,6 +53,10 @@ bootstrap: &bootstrap
   run:
     name: Bootstrap
     command: ./bootstrap
+
+
+orbs:
+  codecov: codecov/codecov@1.0.2
 
 
 jobs:
@@ -96,7 +108,7 @@ jobs:
       - *restore_cache
       - *bootstrap
       - run:
-          name: Publish
+          name: Recreate stubs
           command: poetry run ./.bin/recreate_stubs
       - run:
           name: Generate version
@@ -107,3 +119,10 @@ jobs:
       - run:
           name: publish
           command: poetry publish --username $PYPI_USERNAME --password $PYPI_PASSWORD
+
+  upload-codecov:
+    <<: *defaults
+    steps:
+      - checkout
+      - run:
+          - codecov/upload
