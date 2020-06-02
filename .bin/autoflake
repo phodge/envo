@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+autoflake --remove-all-unused-imports -i $@
+git add $@
