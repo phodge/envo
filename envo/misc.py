@@ -1,9 +1,10 @@
 import importlib.machinery
 import importlib.util
+from fnmatch import fnmatch
 import inspect
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 __all__ = [
     "dir_name_to_class_name",
@@ -20,60 +21,38 @@ class EnvoError(Exception):
 
 
 class Inotify:
-    def __init__(self):
+    def __init__(self, root: Path):
         import inotify.adapters
 
-        self.device = inotify.adapters.Inotify()
+        self.device = inotify.adapters.InotifyTree(str(root))
+        self.include: List[Path] = []
+        self.exclude: List[Path] = []
         self._tmp_watches: Dict[str, Any] = {}
         self._tmp_watches_r: Dict[str, Any] = {}
+        self._pause = False
+        self._pause_exemption: Optional[Path] = None
 
     def event_gen(self) -> Any:
         for event in self.device.event_gen(yield_nones=False):
             (_, type_names, path, filename) = event
             full_path = Path(path) / Path(filename)
 
-            if str(full_path).endswith("~"):
+            if self._pause and full_path != self._pause_exemption:
                 continue
 
-            # if full_path in self.ignored_files:
-            #     continue
+            if any([fnmatch(str(full_path), i) for i in self.exclude]):
+                continue
 
-            yield event
+            if any([fnmatch(str(full_path), i) for i in self.include]):
+                yield event
 
-    def add_watch(self, path: Path) -> None:
-        if str(path) in self.device._Inotify__watches:
-            return
-
-        self.device.add_watch(str(path))
-
-    def remove_watch(self, path: Path) -> None:
-        if str(path) not in self.device._Inotify__watches:
-            return
-
-        self.device.remove_watch(str(path))
-
-    def remove_watches(self) -> None:
-        self.device._Inotify__watches = {}
-        self.device._Inotify__watches_r = {}
-        self._tmp_watches = {}
-        self._tmp_watches_r = {}
-
-    def pause(self) -> None:
-        self._tmp_watches = self.device._Inotify__watches.copy()
-        self._tmp_watches_r = self.device._Inotify__watches_r.copy()
-        self.device._Inotify__watches = {}
-        self.device._Inotify__watches_r = {}
+    def pause(self, exempt: Optional[Path] = None) -> None:
+        self._pause = True
+        # self.device.
+        self._pause_exemption = exempt
 
     def resume(self) -> None:
-        # check if not paused
-        if not self._tmp_watches:
-            return
-
-        self.device._Inotify__watches = self._tmp_watches.copy()
-        self.device._Inotify__watches_r = self._tmp_watches_r.copy()
-
-        self._tmp_watches = {}
-        self._tmp_watches_r = {}
+        self._pause = False
 
 
 def dir_name_to_class_name(dir_name: str) -> str:
