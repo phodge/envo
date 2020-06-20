@@ -6,15 +6,15 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Thread
+from time import sleep
 from typing import Dict, List, Literal, Optional
 
 from ilock import ILock
-from inotify.adapters import Inotify  # type: ignore
 from jinja2 import Environment
 from loguru import logger
 
 from envo import Env, misc, shell
-from envo.misc import import_from_file, EnvoError
+from envo.misc import import_from_file, EnvoError, Inotify
 
 __all__ = ["stage_emoji_mapping"]
 
@@ -65,6 +65,12 @@ class Envo:
         self.environ_before = os.environ.copy()  # type: ignore
 
         self._set_context_thread: Optional[Thread] = None
+
+        self.lock_dir = Path("/tmp/envo")
+        if not self.lock_dir.exists():
+            self.lock_dir.mkdir()
+
+        self.global_lock = ILock("envo_lock", lock_directory=str(self.lock_dir))
 
     def spawn_shell(self, type: Literal["fancy", "simple", "headless"]) -> None:
         """
@@ -126,6 +132,8 @@ class Envo:
 
             print_exc()
             self.shell.set_prompt_prefix("❌")
+        finally:
+            self._add_watches()
 
     def _get_prompt_prefix(self, loading: bool = False) -> str:
         env_prefix = f"{self.env.meta.emoji}({self.env.get_full_name()})"
@@ -186,25 +194,61 @@ class Envo:
             if re.match(h.kwargs["cmd_regex"], command):
                 h(command=command, stdout=stdout, stderr=stderr)  # type: ignore
 
+    def _add_watches(self) -> None:
+        # def thread(self):
+        #     watches = []
+        #
+        #     for d in self.env_dirs:
+        #         comm_env_file = d / "env_comm.py"
+        #         env_file = d / f"env_{self.se.stage}.py"
+        #
+        #         watches.append(comm_env_file)
+        #         watches.append(env_file)
+        #
+        #     watches.extend(list(self.env.get_watched_files()))
+        #     for w in watches:
+        #         self.inotify.add_watch(w)
+
+        self.inotify.add_watch(str(self.env.root) + "/**/")
+
+        thread = Thread(target=thread, args=(self,))
+        thread.start()
+
     def _files_watchdog(self) -> None:
-        for event in self.inotify.event_gen(yield_nones=False):
+        for event in self.inotify.event_gen():
             if self.quit:
                 return
 
+            # check if locked
+            # locked means that other envo instance is creating temp __init__.py files
+            # we don't want to handle this so we skip
             (_, type_names, path, filename) = event
-            if "IN_CLOSE_WRITE" in type_names:
-                logger.info(f'\nDetected changes in "{str(path)}".')
+            full_path = Path(path) / Path(filename)
+
+            # Disable events on global lock
+            if full_path == Path(self.global_lock._filepath):
+                if "IN_CREATE" in type_names:
+                    self.inotify.pause()
+                    # Enable events for lock file so inotify can be resumed on lock end
+                    self.inotify.add_watch(self.lock_dir)
+
+                if "IN_DELETE" in type_names:
+                    self.inotify.resume()
+                continue
+
+            if "IN_CREATE" in type_names:
+                self.inotify.add_watch(full_path)
+
+            if "IN_DELETE_SELF" in type_names:
+                self.inotify.remove_watch(full_path)
+
+            if "IN_CLOSE_WRITE" in type_names and Path(path).is_file():
+                logger.info(f'\nDetected changes in "{str(full_path)}".')
                 logger.info("Reloading...")
                 self.restart()
                 print("\r" + self.shell.prompt, end="")
 
     def _start_files_watchdog(self) -> None:
-        for d in self.env_dirs:
-            comm_env_file = d / "env_comm.py"
-            env_file = d / f"env_{self.se.stage}.py"
-            self.inotify.add_watch(str(comm_env_file))
-            self.inotify.add_watch(str(env_file))
-
         self.files_watchdog_thread = Thread(target=self._files_watchdog)
         self.files_watchdog_thread.start()
 
@@ -275,14 +319,13 @@ class Envo:
         module_name = f"{package}.{env_name}"
 
         # We have to lock this part in case there's other shells concurrently executing this code
-        with ILock("envo_lock"):
+        with self.global_lock:
             self._create_init_files()
 
             # unload modules
             for m in list(sys.modules.keys())[:]:
                 if m.startswith("env_"):
                     sys.modules.pop(m)
-
             try:
                 module = import_from_file(env_file)
                 env: Env

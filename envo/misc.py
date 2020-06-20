@@ -3,7 +3,7 @@ import importlib.util
 import inspect
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 __all__ = [
     "dir_name_to_class_name",
@@ -17,6 +17,63 @@ __all__ = [
 
 class EnvoError(Exception):
     pass
+
+
+class Inotify:
+    def __init__(self):
+        import inotify.adapters
+
+        self.device = inotify.adapters.Inotify()
+        self._tmp_watches: Dict[str, Any] = {}
+        self._tmp_watches_r: Dict[str, Any] = {}
+
+    def event_gen(self) -> Any:
+        for event in self.device.event_gen(yield_nones=False):
+            (_, type_names, path, filename) = event
+            full_path = Path(path) / Path(filename)
+
+            if str(full_path).endswith("~"):
+                continue
+
+            # if full_path in self.ignored_files:
+            #     continue
+
+            yield event
+
+    def add_watch(self, path: Path) -> None:
+        if str(path) in self.device._Inotify__watches:
+            return
+
+        self.device.add_watch(str(path))
+
+    def remove_watch(self, path: Path) -> None:
+        if str(path) not in self.device._Inotify__watches:
+            return
+
+        self.device.remove_watch(str(path))
+
+    def remove_watches(self) -> None:
+        self.device._Inotify__watches = {}
+        self.device._Inotify__watches_r = {}
+        self._tmp_watches = {}
+        self._tmp_watches_r = {}
+
+    def pause(self) -> None:
+        self._tmp_watches = self.device._Inotify__watches.copy()
+        self._tmp_watches_r = self.device._Inotify__watches_r.copy()
+        self.device._Inotify__watches = {}
+        self.device._Inotify__watches_r = {}
+
+    def resume(self) -> None:
+        # check if not paused
+        if not self._tmp_watches:
+            return
+
+        self.device._Inotify__watches = self._tmp_watches.copy()
+        self.device._Inotify__watches_r = self._tmp_watches_r.copy()
+
+        self._tmp_watches = {}
+        self._tmp_watches_r = {}
 
 
 def dir_name_to_class_name(dir_name: str) -> str:

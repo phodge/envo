@@ -15,6 +15,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    Set,
 )
 
 from loguru import logger
@@ -412,12 +413,19 @@ class Env(BaseEnv):
         Environment metadata.
         """
 
-        stage: str = field(default="comm", init=False)
-        emoji: str = field(default="", init=False)
-        name: str = field(init=False)
         root: Path = field(init=False)
-        parent: Optional[str] = field(default=None, init=False)
+        name: str = field(init=False)
         version: str = field(default="0.1.0", init=False)
+        parent: Optional[str] = field(default=None, init=False)
+        watch_files: Optional[List[str]] = field(
+            default_factory=lambda: ["**/*.py", "**/"], init=False
+        )
+        ignore_files: Optional[List[str]] = field(
+            default_factory=lambda: ["**/.*/**/*", "**/.*", "**/*~", "**/__pycache__"],
+            init=False,
+        )
+        emoji: str = field(default="", init=False)
+        stage: str = field(default="comm", init=False)
 
     root: Path
     stage: str
@@ -573,6 +581,20 @@ class Env(BaseEnv):
 
     def get_parent(self) -> Optional["Env"]:
         return self._parent
+
+    def get_ignored_paths(self) -> Set[Path]:
+        ret = set()
+        for r in self.meta.ignore_files:
+            ret |= set(self.root.glob(r))
+        return ret
+
+    def get_watched_files(self) -> List[Path]:
+        ret = set()
+        for r in self.meta.watch_files:
+            ret |= set(self.root.glob(r))
+
+        ret -= self.get_ignored_paths()
+        return list(ret)
 
     def _init_parent(self) -> None:
         """

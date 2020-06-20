@@ -29,6 +29,7 @@ class EnvoEnvComm(envo.Env):
         root = Path(__file__).parent
         name = "envo"
         version = "0.1.0"
+        watch_files = ["*.py"]
         parent = None
 
     venv: VenvEnv
@@ -59,12 +60,17 @@ class EnvoEnvComm(envo.Env):
     #         ),
     #     ]
     #
+
     @command
     def flake(self) -> None:
         logger.info("Running flake8")
         run("black .", print_output=False)
         run("flake8")
-    #
+
+    # @onfilevent(file=r"envo*.py", events=[])
+    # def on_save(self, event, file: Path):
+    #     pass
+
     # @command(prop=False, glob=True)
     # def flake2(self, test_arg: str = "") -> str:
     #     print("Flake all good" + test_arg)
@@ -95,6 +101,7 @@ class EnvoEnvComm(envo.Env):
     def mypy(self) -> None:
         logger.info("Running mypy")
         run("mypy envo")
+
     #
     # @command(glob=True)
     # def black(self) -> None:

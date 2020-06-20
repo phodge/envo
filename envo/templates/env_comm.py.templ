@@ -25,6 +25,7 @@ class {{ class_name }}Comm(envo.Env):
         root = Path(__file__).parent.absolute()
         name = "{{ name }}"
         version = "0.1.0"
+        watch_files = ["*"]
         parent = None
 
     {%- if "venv" in selected_addons%}

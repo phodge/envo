@@ -9,7 +9,7 @@ import pexpect
 class TestHotReload(utils.TestBase):
     def test_hot_reload(self, shell, envo_prompt):
         new_content = Path("env_comm.py").read_text().replace("sandbox", "new")
-        utils.change_file(Path("env_comm.py"), 0.5, new_content)
+        Path("env_comm.py").write_text(new_content)
         new_prompt = envo_prompt.replace(b"sandbox", b"new")
         shell.expect(new_prompt, timeout=2)
 
@@ -18,7 +18,7 @@ class TestHotReload(utils.TestBase):
         shell.expect("test")
 
         new_content = Path("env_comm.py").read_text().replace("sandbox", "new")
-        utils.change_file(Path("env_comm.py"), 0.5, new_content)
+        Path("env_comm.py").write_text(new_content)
         new_prompt = envo_prompt.replace(b"sandbox", b"new")
         shell.expect(new_prompt)
 
@@ -33,9 +33,30 @@ class TestHotReload(utils.TestBase):
         os.chdir("./test_dir")
 
         new_content = Path("../env_comm.py").read_text() + "\n"
-        utils.change_file(Path("../env_comm.py"), 0.5, new_content)
+        Path("../env_comm.py").write_text(new_content)
 
+        shell.expect(r".*changes.*env_comm\.py.*Reloading")
         shell.expect(envo_prompt)
+
+    def test_new_python_files(self, shell, envo_prompt):
+        Path("./test_dir").mkdir()
+        file = Path("./test_dir/some_src_file.py")
+        file.touch()
+
+        file.write_text("# test")
+        shell.expect(r".*changes.*some_src_file\.py.*Reloading")
+        shell.expect(envo_prompt)
+
+    def test_other_python_files(self, envo_prompt):
+        Path("./test_dir").mkdir()
+        file = Path("./test_dir/some_src_file.py")
+        file.touch()
+
+        s = utils.shell()
+
+        file.write_text("# test")
+        s.expect(r".*changes.*some_src_file\.py.*Reloading")
+        s.expect(envo_prompt)
 
     def test_error(self, shell, envo_prompt):
         comm_file = Path("env_comm.py")
@@ -44,15 +65,15 @@ class TestHotReload(utils.TestBase):
         new_content = comm_file.read_text().replace(
             "# Declare your variables here", "test_var: int"
         )
-        utils.change_file(Path("env_comm.py"), 0.5, new_content)
+        Path("env_comm.py").write_text(new_content)
 
         shell.expect(
             r'Reloading.*Variable "sandbox\.test_var" is unset!', timeout=5,
         )
-        shell.expect("❌".encode("utf-8"), timeout=2)
+        shell.expect("❌".encode("utf-8"), timeout=3)
 
         Path("env_comm.py").write_text(file_before)
-        shell.expect(envo_prompt, timeout=2)
+        shell.expect(envo_prompt, timeout=3)
 
     def test_few_times_in_a_row_quick(self, shell, envo_prompt):
         env_comm_file = Path("env_comm.py")
