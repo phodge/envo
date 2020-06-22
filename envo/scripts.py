@@ -37,7 +37,6 @@ class Envo:
         init: bool
 
     environ_before = Dict[str, str]
-    files_watchdog_thread: Thread
     shell: shell.Shell
     inotify: Inotify
     env_dirs: List[Path]
@@ -200,7 +199,6 @@ class Envo:
             # we don't want to handle this so we skip
             (_, type_names, path, filename) = event
             full_path = Path(path) / Path(filename)
-            # print(event)
 
             # Disable events on global lock
             if full_path == Path(self.global_lock._filepath):
@@ -212,7 +210,8 @@ class Envo:
                     self.inotify.resume()
                 continue
 
-            if "IN_CLOSE_WRITE" in type_names and Path(full_path).is_file():
+            if ("IN_CLOSE_WRITE" in type_names or "IN_CREATE" in type_names)\
+                    and Path(full_path).is_file():
                 logger.info(f'\nDetected changes in "{str(full_path)}".')
                 logger.info("Reloading...")
                 self.restart()
@@ -223,16 +222,16 @@ class Envo:
         self.inotify = Inotify(self.env_dirs[-1])
         self.quit = False
         self.inotify.include = ["**/env_*.py"]
-        self.files_watchdog_thread = Thread(target=self._files_watchdog)
-        self.files_watchdog_thread.start()
+        files_watchdog_thread = Thread(target=self._files_watchdog)
+        files_watchdog_thread.start()
 
     def _start_files_watchdog(self) -> None:
         self.inotify = Inotify(self.env.get_root_env().root)
         self.quit = False
         self.inotify.include = self.env.meta.watch_files
         self.inotify.exclude = self.env.meta.ignore_files
-        self.files_watchdog_thread = Thread(target=self._files_watchdog)
-        self.files_watchdog_thread.start()
+        files_watchdog_thread = Thread(target=self._files_watchdog)
+        files_watchdog_thread.start()
 
     def _stop_files_watchdog(self) -> None:
         self.quit = True
@@ -319,33 +318,29 @@ class Envo:
                 self._delete_init_files()
 
     def handle_command(self, args: argparse.Namespace) -> None:
-        try:
-            if args.save:
-                self.create_env().dump_dot_env()
-                return
+        if args.save:
+            self.create_env().dump_dot_env()
+            return
 
-            if args.command:
-                self.spawn_shell("headless")
-                try:
-                    self.shell.default(args.command)
-                except SystemExit as e:
-                    sys.exit(e.code)
-                else:
-                    sys.exit(self.shell.history[-1].rtn)
-
-            if args.dry_run:
-                content = "\n".join(
-                    [
-                        f'export {k}="{v}"'
-                        for k, v in self.create_env().get_env_vars().items()
-                    ]
-                )
-                print(content)
+        if args.command:
+            self.spawn_shell("headless")
+            try:
+                self.shell.default(args.command)
+            except SystemExit as e:
+                sys.exit(e.code)
             else:
-                self.spawn_shell(args.shell)
-        except EnvoError as e:
-            logger.error(e)
-            exit(1)
+                sys.exit(self.shell.history[-1].rtn)
+
+        if args.dry_run:
+            content = "\n".join(
+                [
+                    f'export {k}="{v}"'
+                    for k, v in self.create_env().get_env_vars().items()
+                ]
+            )
+            print(content)
+        else:
+            self.spawn_shell(args.shell)
 
 
 class EnvoCreator:
@@ -438,24 +433,28 @@ def _main() -> None:
     args = parser.parse_args(sys.argv[1:])
     sys.argv = sys.argv[:1]
 
-    if args.version:
-        from envo.__version__ import __version__
-        logger.info(__version__)
-        return
+    try:
+        if args.version:
+            from envo.__version__ import __version__
+            logger.info(__version__)
+            return
 
-    if args.init:
-        if isinstance(args.init, str):
-            selected_addons = args.init.split()
+        if args.init:
+            if isinstance(args.init, str):
+                selected_addons = args.init.split()
+            else:
+                selected_addons = []
+            envo_creator = EnvoCreator(EnvoCreator.Sets(stage=args.stage, addons=selected_addons))
+            envo_creator.create()
+            return
         else:
-            selected_addons = []
-        envo_creator = EnvoCreator(EnvoCreator.Sets(stage=args.stage, addons=selected_addons))
-        envo_creator.create()
-        return
-    else:
-        envo = Envo(
-            Envo.Sets(stage=args.stage, init=bool(args.init))
-        )
-        envo.handle_command(args)
+            envo = Envo(
+                Envo.Sets(stage=args.stage, init=bool(args.init))
+            )
+            envo.handle_command(args)
+
+    except EnvoError as e:
+        logger.error(e)
 
 
 if __name__ == "__main__":

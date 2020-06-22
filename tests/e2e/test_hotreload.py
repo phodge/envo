@@ -40,23 +40,15 @@ class TestHotReload(utils.TestBase):
 
     def test_new_python_files(self, shell, envo_prompt):
         Path("./test_dir").mkdir()
+        time.sleep(0.1)
         file = Path("./test_dir/some_src_file.py")
         file.touch()
+        shell.expect(r".*changes.*some_src_file\.py.*Reloading")
 
+        time.sleep(0.1)
         file.write_text("# test")
         shell.expect(r".*changes.*some_src_file\.py.*Reloading")
         shell.expect(envo_prompt)
-
-    def test_other_python_files(self, envo_prompt):
-        Path("./test_dir").mkdir()
-        file = Path("./test_dir/some_src_file.py")
-        file.touch()
-
-        s = utils.shell()
-
-        file.write_text("# test")
-        s.expect(r".*changes.*some_src_file\.py.*Reloading")
-        s.expect(envo_prompt)
 
     def test_error(self, shell, envo_prompt):
         comm_file = Path("env_comm.py")
@@ -84,8 +76,8 @@ class TestHotReload(utils.TestBase):
 
         shell.expect(envo_prompt)
 
-        shell.sendcontrol("d")
-        shell.expect(pexpect.EOF, timeout=15)
+        shell.sendline("exit")
+        shell.expect(pexpect.EOF)
 
     def test_if_reproductible(self, envo_prompt):
         os.environ["PATH"] = "/already_existing_path:" + os.environ["PATH"]

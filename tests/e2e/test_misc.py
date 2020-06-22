@@ -87,9 +87,9 @@ class TestMisc(utils.TestBase):
         shells = [utils.shell() for i in range(6)]
 
         new_content = Path("env_comm.py").read_text() + "\n"
-        utils.change_file(Path("env_comm.py"), 0.5, new_content)
+        Path("env_comm.py").write_text(new_content)
 
-        [s.expect(envo_prompt, timeout=10) for s in shells]
+        [s.expect(envo_prompt, timeout=12) for s in shells]
 
     def test_env_persists_in_bash_scripts(self, shell):
         file = Path("script.sh")

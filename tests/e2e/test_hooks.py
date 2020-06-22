@@ -185,6 +185,6 @@ class TestHooks(utils.TestBase):
         Path("env_comm.py").write_text(Path("env_comm.py").read_text())
         s.expect(r"on unload")
         s.expect(r"on load")
-        s.sendcontrol("d")
+        s.sendline("exit")
         s.expect(r"on unload")
         s.expect(EOF)
