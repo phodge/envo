@@ -7,8 +7,38 @@ from typing import Any, Dict, Callable, Optional, List, TextIO
 
 from xonsh.base_shell import BaseShell
 from xonsh.execer import Execer
+from xonsh.prompt.base import DEFAULT_PROMPT
 from xonsh.ptk_shell.shell import PromptToolkitShell
 from xonsh.readline_shell import ReadlineShell
+
+
+class Prompt:
+    _prompt: str
+    _template: str
+
+    def __init__(self) -> None:
+        self._prompt = ""
+        self._template = "{emergency}{loading}{emoji}{name}{default}"
+        self.emergency: bool = False
+        self.loading: bool = False
+        self.emoji: str = ""
+        self.name: str = ""
+        self.default: str = str(DEFAULT_PROMPT)
+
+        self.context = {
+            "emergency": lambda: "❌" if self.emergency else "",
+            "loading": lambda: "⏳" if self.loading else "",
+            "emoji": lambda: self.emoji,
+            "name": lambda: f"({self.name})",
+            "default": lambda: str(DEFAULT_PROMPT),
+        }
+
+    def reset(self) -> None:
+        self._prompt = self._template
+
+    def __str__(self) -> str:
+        prompt = self._prompt.format(**{k: v() for k, v in self.context.items()})
+        return prompt
 
 
 class Shell(BaseShell):  # type: ignore
@@ -31,10 +61,8 @@ class Shell(BaseShell):  # type: ignore
 
         self.cmd_lock = Lock()
 
-    def set_prompt_prefix(self, prefix: str) -> None:
-        from xonsh.prompt.base import DEFAULT_PROMPT
-
-        self.environ["PROMPT"] = prefix + str(DEFAULT_PROMPT)
+    def set_prompt(self, prompt: str) -> None:
+        self.environ["PROMPT"] = prompt
 
     def set_variable(self, name: str, value: Any) -> None:
         """

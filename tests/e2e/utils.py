@@ -54,7 +54,7 @@ def init_child_env(child_dir: Path) -> None:
 
     comm_file = Path("env_comm.py")
     content = comm_file.read_text()
-    content = content.replace("parent = None", 'parent = ".."')
+    content = content.replace("parent: Optional[str] = None", 'parent = ".."')
     comm_file.write_text(content)
 
     os.chdir(str(cwd))

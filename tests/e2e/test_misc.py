@@ -5,6 +5,7 @@ from pathlib import Path
 import pexpect
 import pytest
 from pexpect import run
+from rhei import Stopwatch
 
 from tests.e2e import utils
 
@@ -113,3 +114,12 @@ class TestMisc(utils.TestBase):
         s.sendline("import rhei")
         s.sendline("print(rhei.stopwatch)")
         s.expect(r"module 'rhei\.stopwatch'")
+
+    def test_timing(self):
+        stopwatch = Stopwatch()
+
+        stopwatch.start()
+        utils.shell()
+        stopwatch.pause()
+
+        assert stopwatch.value < 2.0

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from typing import List, Dict, Any  # noqa: F401
+from typing import List, Dict, Any, Tuple  # noqa: F401
 
 import envo
 from envo import (  # noqa: F401
@@ -29,7 +29,8 @@ class EnvoEnvComm(envo.Env):
         root = Path(__file__).parent
         name = "envo"
         version = "0.1.0"
-        watch_files = ["*.py"]
+        watch_files: Tuple[str] = ("",)
+        ignore_files: Tuple[str] = ("tests/*",)
         parent = None
 
     venv: VenvEnv

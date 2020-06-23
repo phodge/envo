@@ -493,6 +493,14 @@ python-versions = "*"
 version = "2020.6.8"
 
 [[package]]
+category = "main"
+description = "Package that implements simple stopwatch class."
+name = "rhei"
+optional = false
+python-versions = ">= 3.6"
+version = "0.5.2"
+
+[[package]]
 category = "dev"
 description = "Python 2 and 3 compatibility utilities"
 name = "six"
@@ -585,7 +593,7 @@ docs = ["sphinx", "jaraco.packaging (>=3.2)", "rst.linker (>=1.9)"]
 testing = ["jaraco.itertools", "func-timeout"]
 
 [metadata]
-content-hash = "dd796e28a845f706ed619b89baa383905c20ed32038e4c3c92a7386d67cc6764"
+content-hash = "5892c9147068eca96598536b76c49aa0f08efc4433c82cb38aebfddf3e7d0c64"
 python-versions = ">=3.6.1, <4.0"
 
 [metadata.files]
@@ -870,6 +878,10 @@ regex = [
     {file = "regex-2020.6.8-cp38-cp38-win32.whl", hash = "sha256:97712e0d0af05febd8ab63d2ef0ab2d0cd9deddf4476f7aa153f76feef4b2754"},
     {file = "regex-2020.6.8-cp38-cp38-win_amd64.whl", hash = "sha256:6ad8663c17db4c5ef438141f99e291c4d4edfeaacc0ce28b5bba2b0bf273d9b5"},
     {file = "regex-2020.6.8.tar.gz", hash = "sha256:e9b64e609d37438f7d6e68c2546d2cb8062f3adb27e6336bc129b51be20773ac"},
+]
+rhei = [
+    {file = "rhei-0.5.2-py3-none-any.whl", hash = "sha256:79cde150b7aaa803f4ba7fd6d21435f96adab911c68779a407cc67a90a326cea"},
+    {file = "rhei-0.5.2.tar.gz", hash = "sha256:85e640a454468b05ff226f4a78f34804f7c4ebfd3b9eb7d0072349151b929dca"},
 ]
 six = [
     {file = "six-1.15.0-py2.py3-none-any.whl", hash = "sha256:8b74bedcbbbaca38ff6d7491d76f2b06b3592611af620f8426e82dddb04a5ced"},

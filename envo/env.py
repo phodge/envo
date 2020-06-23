@@ -15,7 +15,6 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
-    Set,
 )
 
 from loguru import logger
@@ -417,19 +416,15 @@ class Env(BaseEnv):
         name: str = field(init=False)
         version: str = field(default="0.1.0", init=False)
         parent: Optional[str] = field(default=None, init=False)
-        watch_files: Optional[List[str]] = field(
-            default_factory=lambda: ["**/*.py", "**/"], init=False
-        )
-        ignore_files: Optional[List[str]] = field(
-            default_factory=lambda: ["**/.*/**/*", "**/.*", "**/*~", "**/__pycache__"],
-            init=False,
-        )
+        watch_files: Tuple[str] = field(init=False)
+        ignore_files: Tuple[str] = field(init=False)
         emoji: str = field(default="", init=False)
         stage: str = field(default="comm", init=False)
 
         def __post_init__(self) -> None:
             super().__post_init__()
-            self.watch_files.append("**/__envo_lock__")
+            self.watch_files = ("**/", "**/__envo_lock__", *self.watch_files)
+            self.ignore_files = ("**/.*", "**/*~", "**/__pycache__", *self.ignore_files)
 
     root: Path
     stage: str

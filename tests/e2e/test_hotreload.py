@@ -1,3 +1,6 @@
+import pytest
+from pexpect import TIMEOUT
+
 from tests.e2e import utils
 import os
 import time
@@ -31,6 +34,7 @@ class TestHotReload(utils.TestBase):
     def test_from_child_dir(self, shell, envo_prompt):
         Path("./test_dir").mkdir()
         os.chdir("./test_dir")
+        time.sleep(0.1)
 
         new_content = Path("../env_comm.py").read_text() + "\n"
         Path("../env_comm.py").write_text(new_content)
@@ -41,13 +45,56 @@ class TestHotReload(utils.TestBase):
     def test_new_python_files(self, shell, envo_prompt):
         Path("./test_dir").mkdir()
         time.sleep(0.1)
+
+        utils.replace_in_code(
+            'watch_files: Tuple[str] = ("",)', 'watch_files: Tuple[str] = ("**/*.py",)'
+        )
+        shell.expect(r".*changes.*env_comm\.py.*Reloading")
+
         file = Path("./test_dir/some_src_file.py")
+        time.sleep(0.1)
         file.touch()
+
         shell.expect(r".*changes.*some_src_file\.py.*Reloading")
+        time.sleep(0.1)
+        file.write_text("test = 1")
+
+        shell.expect(r".*changes.*some_src_file\.py.*Reloading")
+        shell.expect(envo_prompt)
+
+    def test_ignored_files_files(self, shell, envo_prompt):
+        Path("./test_dir").mkdir()
+        time.sleep(0.1)
+
+        utils.replace_in_code(
+            'watch_files: Tuple[str] = ("",)', 'watch_files: Tuple[str] = ("**/*.py",)'
+        )
+        time.sleep(0.1)
+        shell.expect(r".*changes.*env_comm\.py.*Reloading")
+        time.sleep(0.1)
+        utils.replace_in_code(
+            'ignore_files: Tuple[str] = ("",)',
+            'ignore_files: Tuple[str] = ("**/ignored_file.py",)',
+        )
+        shell.expect(r".*changes.*env_comm\.py.*Reloading")
+
+        ignored_file = Path("./test_dir/ignored_file.py")
+        watched_file = Path("./test_dir/watched_file.py")
+        time.sleep(0.1)
+        watched_file.touch()
+        shell.expect(r".*changes.*watched_file\.py.*Reloading")
+        time.sleep(0.1)
+        watched_file.write_text("test = 1")
+        shell.expect(r".*changes.*watched_file\.py.*Reloading")
 
         time.sleep(0.1)
-        file.write_text("# test")
-        shell.expect(r".*changes.*some_src_file\.py.*Reloading")
+        ignored_file.touch()
+        with pytest.raises(TIMEOUT):
+            shell.expect(r".*changes.*ignored_file\.py.*Reloading")
+
+        with pytest.raises(TIMEOUT):
+            shell.expect(r".*changes.*ignored_file\.py.*Reloading")
+
         shell.expect(envo_prompt)
 
     def test_error(self, shell, envo_prompt):

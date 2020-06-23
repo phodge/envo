@@ -6,8 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Thread
-from time import sleep
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal
 
 from ilock import ILock
 from loguru import logger
@@ -16,6 +15,8 @@ from envo import Env, misc, shell
 from envo.misc import import_from_file, EnvoError, Inotify
 
 __all__ = ["stage_emoji_mapping"]
+
+from envo.shell import Prompt
 
 package_root = Path(os.path.realpath(__file__)).parent
 templates_dir = package_root / "templates"
@@ -28,6 +29,66 @@ stage_emoji_mapping: Dict[str, str] = {
     "stage": "🤖",
     "prod": "🔥",
 }
+
+
+class FilesWatcher:
+    def __init__(self, envo: "Envo"):
+        self.envo = envo
+        self._stop = False
+
+    def _thread(self, emergency_mode: bool) -> None:
+        if not emergency_mode:
+            watch_root = self.envo.env.get_root_env().root
+        else:
+            # We have to set the watch root the most deep env because
+            watch_root = self.envo.env_dirs[-1]
+
+        inotify = Inotify(watch_root)
+        self._stop = False
+        inotify.include = ["**/env_*.py"]
+
+        if not emergency_mode:
+            inotify.include.extend(self.envo.env.meta.watch_files)
+            inotify.exclude = self.envo.env.meta.ignore_files
+
+        for event in inotify.event_gen():
+            if self._stop:
+                return
+
+            # check if locked
+            # locked means that other envo instance is creating temp __init__.py files
+            # we don't want to handle this so we skip
+            (_, type_names, path, filename) = event
+            full_path = Path(path) / Path(filename)
+
+            # Disable events on global lock
+            if full_path.name == Path(self.envo.global_lock._filepath).name:
+                if "IN_CREATE" in type_names:
+                    inotify.pause(exempt=Path(self.envo.global_lock._filepath))
+                    # Enable events for lock file so inotify can be resumed on lock end
+
+                if "IN_DELETE" in type_names:
+                    inotify.resume()
+                continue
+
+            if ("IN_CLOSE_WRITE" in type_names or "IN_CREATE" in type_names) and Path(
+                full_path
+            ).is_file():
+                logger.info(f'\nDetected changes in "{str(full_path)}".')
+                logger.info("Reloading...")
+                self.envo.restart()
+                print("\r" + self.envo.shell.prompt, end="")
+                return
+
+    def start(self, emergency_mode: bool = False) -> None:
+        files_watchdog_thread = Thread(target=self._thread, args=(emergency_mode,))
+        files_watchdog_thread.start()
+
+    def stop(self) -> None:
+        self._stop = True
+        env_comm = self.envo.env_dirs[0] / "env_comm.py"
+        # Save the same content to trigger inotify event
+        env_comm.read_text()
 
 
 class Envo:
@@ -45,7 +106,6 @@ class Envo:
 
     def __init__(self, sets: Sets) -> None:
         self.se = sets
-        self.inotify: Inotify = None
 
         self.env_dirs = self._get_env_dirs()
         if not self.env_dirs:
@@ -58,7 +118,7 @@ class Envo:
 
         self.environ_before = os.environ.copy()  # type: ignore
 
-        self._set_context_thread: Optional[Thread] = None
+        self.files_watcher = FilesWatcher(self)
 
         self.lock_dir = Path("/tmp/envo")
         if not self.lock_dir.exists():
@@ -66,21 +126,26 @@ class Envo:
 
         self.global_lock = ILock("envo_lock")
         self.global_lock._filepath = str(self.env_dirs[0] / "__envo_lock__")
+        self.prompt = Prompt()
 
     def spawn_shell(self, type: Literal["fancy", "simple", "headless"]) -> None:
         """
         :param type: shell type
         """
         self.shell = shell.shells[type].create()
+        if type == "headless":
+            return
+
         self.restart()
         self.shell.start()
-        self._stop_files_watchdog()
+        self.files_watcher.stop()
         self._on_unload()
         self._on_destroy()
 
     def restart(self) -> None:
         try:
-            self._stop_files_watchdog()
+            self.prompt.reset()
+            self.files_watcher.stop()
 
             os.environ = self.environ_before.copy()  # type: ignore
 
@@ -93,56 +158,52 @@ class Envo:
 
             self.env.validate()
             self.env.activate()
-
             self._on_load()
             self.shell.reset()
             self.shell.set_variable("env", self.env)
             self.shell.set_variable("environ", self.shell.environ)
 
-            self._set_context_thread = Thread(target=self._set_context)
-            self._set_context_thread.start()
+            context_thread = Thread(target=self._set_context)
+            context_thread.start()
 
             glob_cmds = [
                 c for c in self.env.get_magic_functions()["command"] if c.kwargs["glob"]
             ]
             for c in glob_cmds:
                 self.shell.set_variable(c.name, c)
-
             self.shell.pre_cmd = self._on_precmd
             self.shell.on_stdout = self._on_stdout
             self.shell.on_stderr = self._on_stderr
             self.shell.post_cmd = self._on_postcmd
 
+            self.prompt.emoji = self.env.meta.emoji
+            self.prompt.name = self.env.get_full_name()
             self.shell.environ.update(self.env.get_env_vars())
-            self.shell.set_prompt_prefix(
-                self._get_prompt_prefix(loading=self._set_context_thread.is_alive())
-            )
+            if context_thread.is_alive():
+                self.prompt.loading = True
 
         except EnvoError as exc:
             logger.error(exc)
-            self.shell.set_prompt_prefix("❌")
-            self._start_emergency_files_watchdog()
+            self.prompt.emergency = True
+            self.files_watcher.start(emergency_mode=True)
         except Exception:
             from traceback import print_exc
+
             print_exc()
-            self.shell.set_prompt_prefix("❌")
-            self._start_emergency_files_watchdog()
+            self.prompt.emergency = True
+            self.files_watcher.start(emergency_mode=True)
         else:
-            self._start_files_watchdog()
-
-    def _get_prompt_prefix(self, loading: bool = False) -> str:
-        env_prefix = f"{self.env.meta.emoji}({self.env.get_full_name()})"
-
-        if loading:
-            env_prefix = "⏳" + env_prefix
-
-        return env_prefix
+            self.files_watcher.start()
+        finally:
+            self.shell.set_prompt(str(self.prompt))
 
     def _set_context(self) -> None:
         for c in self.env.get_magic_functions()["context"]:
             context = c()
             self.shell.update_context(context)
-        self.shell.set_prompt_prefix(self._get_prompt_prefix(loading=False))
+
+        self.prompt.loading = False
+        self.shell.set_prompt(str(self.prompt))
 
     def _on_create(self) -> None:
         for h in self.env.get_magic_functions()["oncreate"]:
@@ -188,56 +249,6 @@ class Envo:
         for h in self.env.get_magic_functions()["postcmd"]:
             if re.match(h.kwargs["cmd_regex"], command):
                 h(command=command, stdout=stdout, stderr=stderr)  # type: ignore
-
-    def _files_watchdog(self) -> None:
-        for event in self.inotify.event_gen():
-            if self.quit:
-                return
-
-            # check if locked
-            # locked means that other envo instance is creating temp __init__.py files
-            # we don't want to handle this so we skip
-            (_, type_names, path, filename) = event
-            full_path = Path(path) / Path(filename)
-
-            # Disable events on global lock
-            if full_path == Path(self.global_lock._filepath):
-                if "IN_CREATE" in type_names:
-                    self.inotify.pause(exempt=Path(self.global_lock._filepath))
-                    # Enable events for lock file so inotify can be resumed on lock end
-
-                if "IN_DELETE" in type_names:
-                    self.inotify.resume()
-                continue
-
-            if ("IN_CLOSE_WRITE" in type_names or "IN_CREATE" in type_names)\
-                    and Path(full_path).is_file():
-                logger.info(f'\nDetected changes in "{str(full_path)}".')
-                logger.info("Reloading...")
-                self.restart()
-                print("\r" + self.shell.prompt, end="")
-                return
-
-    def _start_emergency_files_watchdog(self) -> None:
-        self.inotify = Inotify(self.env_dirs[-1])
-        self.quit = False
-        self.inotify.include = ["**/env_*.py"]
-        files_watchdog_thread = Thread(target=self._files_watchdog)
-        files_watchdog_thread.start()
-
-    def _start_files_watchdog(self) -> None:
-        self.inotify = Inotify(self.env.get_root_env().root)
-        self.quit = False
-        self.inotify.include = self.env.meta.watch_files
-        self.inotify.exclude = self.env.meta.ignore_files
-        files_watchdog_thread = Thread(target=self._files_watchdog)
-        files_watchdog_thread.start()
-
-    def _stop_files_watchdog(self) -> None:
-        self.quit = True
-        env_comm = self.env_dirs[0] / "env_comm.py"
-        # Save the same content to trigger inotify event
-        env_comm.read_text()
 
     def _get_env_dirs(self) -> List[Path]:
         ret = []
@@ -370,6 +381,7 @@ class EnvoCreator:
         :return:
         """
         from jinja2 import Environment
+
         Environment(keep_trailing_newline=True)
 
         if output_file.exists():
@@ -436,6 +448,7 @@ def _main() -> None:
     try:
         if args.version:
             from envo.__version__ import __version__
+
             logger.info(__version__)
             return
 
@@ -444,13 +457,13 @@ def _main() -> None:
                 selected_addons = args.init.split()
             else:
                 selected_addons = []
-            envo_creator = EnvoCreator(EnvoCreator.Sets(stage=args.stage, addons=selected_addons))
+            envo_creator = EnvoCreator(
+                EnvoCreator.Sets(stage=args.stage, addons=selected_addons)
+            )
             envo_creator.create()
             return
         else:
-            envo = Envo(
-                Envo.Sets(stage=args.stage, init=bool(args.init))
-            )
+            envo = Envo(Envo.Sets(stage=args.stage, init=bool(args.init)))
             envo.handle_command(args)
 
     except EnvoError as e:

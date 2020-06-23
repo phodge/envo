@@ -5,7 +5,9 @@ import inspect
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
+import inotify.adapters
+import inotify.adapters
+import inotify.constants
 __all__ = [
     "dir_name_to_class_name",
     "setup_logger",
@@ -22,9 +24,9 @@ class EnvoError(Exception):
 
 class Inotify:
     def __init__(self, root: Path):
-        import inotify.adapters
-
-        self.device = inotify.adapters.InotifyTree(str(root))
+        self.device = inotify.adapters.InotifyTree(str(root), mask=inotify.constants.IN_CLOSE_WRITE |
+                                                                   inotify.constants.IN_CREATE |
+                                                                   inotify.constants.IN_DELETE)
         self.include: List[Path] = []
         self.exclude: List[Path] = []
         self._tmp_watches: Dict[str, Any] = {}
@@ -48,7 +50,6 @@ class Inotify:
 
     def pause(self, exempt: Optional[Path] = None) -> None:
         self._pause = True
-        # self.device.
         self._pause_exemption = exempt
 
     def resume(self) -> None:
